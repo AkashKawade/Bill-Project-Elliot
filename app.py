@@ -34,35 +34,44 @@ def forecast():
 
     # Load and preprocess data
     data = load_and_preprocess_data(api_url)
+    if data is None:
+        return jsonify({"error": "Failed to load data from API"}), 500
+
     filtered_data = filter_data_by_date(data, start_date, end_date)
 
     # Prepare hourly data for forecasting
-    hourly_kvah_diff, hourly_kvah = prepare_hourly_data(filtered_data)
+    try:
+        hourly_kvah_diff, hourly_kvah = prepare_hourly_data(filtered_data)
+    except Exception as e:
+        return jsonify({"error": f"Error preparing hourly data: {str(e)}"}), 500
 
     # Forecasting using SARIMA
-    forecast_df, _ = sarima_forecast(hourly_kvah_diff, (1, 0, 1), (1, 1, 1, 24), forecast_hours)
+    try:
+        forecast_df, _ = sarima_forecast(hourly_kvah_diff, (1, 0, 1), (1, 1, 1, 24), forecast_hours)
+    except Exception as e:
+        return jsonify({"error": f"Forecasting failed: {str(e)}"}), 500
 
     # Billing calculation
     rates = get_billing_rates()
     total_hours = len(forecast_df)
     charges = calculate_energy_bill(forecast_df, rates, total_hours)
 
-    # Store hourly_kvah values
+    # Prepare actual and forecasted data for JSON response
     actual_hourly_kvah = hourly_kvah.reset_index()
-    actual_hourly_kvah.columns = ['DateTime', 'Actual_kVAh']
     actual_hourly_kvah['DateTime'] = actual_hourly_kvah['DateTime'].dt.strftime('%Y-%m-%d %H:%M:%S')
+    
+    forecasted_kvah = forecast_df[['Date_Hourly', 'Forecasted_kVah']].copy()
+    forecasted_kvah['DateTime'] = forecasted_kvah['Date_Hourly'].dt.strftime('%Y-%m-%d %H:%M:%S')
+    forecasted_kvah = forecasted_kvah.drop(columns=['Date_Hourly']).to_dict(orient='records')
 
     # Create a structured JSON object
     json_data = {
         'actual_hourly_kVAh': actual_hourly_kvah.to_dict(orient='records'),
-        'forecasted_kVAh': forecast_df[['Date_Hourly', 'Forecasted_kVah']].rename(columns={'Date_Hourly': 'DateTime'}).copy()
+        'forecasted_kVAh': forecasted_kvah
     }
 
-    # Convert forecasted DataFrame to dictionary and format DateTime
-    json_data['forecasted_kVAh']['DateTime'] = json_data['forecasted_kVAh']['DateTime'].dt.strftime('%Y-%m-%d %H:%M:%S')
-    json_data['forecasted_kVAh'] = json_data['forecasted_kVAh'].to_dict(orient='records')
-
     return render_template('results.html', charges=charges)
+
 
 @app.route('/api/forecast-data', methods=['GET'])
 def get_forecast_data():
