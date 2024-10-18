@@ -69,4 +69,4 @@ def get_forecast_data():
     return jsonify(json_data)  # Send the JSON data as response
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run()
